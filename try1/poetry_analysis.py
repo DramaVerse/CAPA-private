@@ -97,6 +97,96 @@ class PoetryAnalyzer:
             }
         }
         
+        # 分析词语和句子数量
+        word_counts = {'唐诗': [], '宋词': []}
+        sent_counts = {'唐诗': [], '宋词': []}
+        emotion_options = {'唐诗': [], '宋词': []}
+        
+        # 处理唐诗
+        for poem in self.poetry_data['唐诗']:
+            # 处理词语解释 - 可能是keywords或qa_words字段
+            if 'keywords' in poem:
+                word_counts['唐诗'].append(len(poem['keywords']))
+            elif 'qa_words' in poem:
+                word_counts['唐诗'].append(len(poem['qa_words']))
+                
+            # 处理句子翻译 - 可能是trans或qa_sents字段
+            if 'trans' in poem:
+                # 如果trans是字符串，计为1句，否则按列表长度计算
+                if isinstance(poem['trans'], str):
+                    sent_counts['唐诗'].append(1)
+                else:
+                    sent_counts['唐诗'].append(len(poem['trans']))
+            elif 'qa_sents' in poem:
+                sent_counts['唐诗'].append(len(poem['qa_sents']))
+                
+            # 处理情感分类 - 可能是emotion或choose字段
+            if 'emotion' in poem:
+                # 处理emotion字段，可能是字符串或列表或字典
+                if isinstance(poem['emotion'], str):
+                    emotions = [e.strip() for e in poem['emotion'].split('、')]
+                    emotion_options['唐诗'].extend(emotions)
+                elif isinstance(poem['emotion'], list):
+                    emotion_options['唐诗'].extend(poem['emotion'])
+                elif isinstance(poem['emotion'], dict):
+                    emotion_options['唐诗'].extend(poem['emotion'].values())
+            elif 'choose' in poem:
+                if isinstance(poem['choose'], dict):
+                    emotion_options['唐诗'].extend(poem['choose'].values())
+        
+        # 处理宋词 - 与处理唐诗类似
+        for poem in self.poetry_data['宋词']:
+            # 处理词语解释
+            if 'keywords' in poem:
+                word_counts['宋词'].append(len(poem['keywords']))
+            elif 'qa_words' in poem:
+                word_counts['宋词'].append(len(poem['qa_words']))
+                
+            # 处理句子翻译
+            if 'trans' in poem:
+                if isinstance(poem['trans'], str):
+                    sent_counts['宋词'].append(1)
+                else:
+                    sent_counts['宋词'].append(len(poem['trans']))
+            elif 'qa_sents' in poem:
+                sent_counts['宋词'].append(len(poem['qa_sents']))
+                
+            # 处理情感分类
+            if 'emotion' in poem:
+                if isinstance(poem['emotion'], str):
+                    emotions = [e.strip() for e in poem['emotion'].split('、')]
+                    emotion_options['宋词'].extend(emotions)
+                elif isinstance(poem['emotion'], list):
+                    emotion_options['宋词'].extend(poem['emotion'])
+                elif isinstance(poem['emotion'], dict):
+                    emotion_options['宋词'].extend(poem['emotion'].values())
+            elif 'choose' in poem:
+                if isinstance(poem['choose'], dict):
+                    emotion_options['宋词'].extend(poem['choose'].values())
+        
+        # 统计平均数
+        stats['词语和句子统计'] = {
+            '唐诗': {
+                '平均解释词语数': np.mean(word_counts['唐诗']) if word_counts['唐诗'] else 0,
+                '平均翻译句子数': np.mean(sent_counts['唐诗']) if sent_counts['唐诗'] else 0,
+            },
+            '宋词': {
+                '平均解释词语数': np.mean(word_counts['宋词']) if word_counts['宋词'] else 0,
+                '平均翻译句子数': np.mean(sent_counts['宋词']) if sent_counts['宋词'] else 0,
+            },
+            '总体': {
+                '平均解释词语数': np.mean(word_counts['唐诗'] + word_counts['宋词']) if (word_counts['唐诗'] + word_counts['宋词']) else 0,
+                '平均翻译句子数': np.mean(sent_counts['唐诗'] + sent_counts['宋词']) if (sent_counts['唐诗'] + sent_counts['宋词']) else 0,
+            }
+        }
+        
+        # 情感分类统计
+        stats['情感分类统计'] = {
+            '唐诗': Counter(emotion_options['唐诗']),
+            '宋词': Counter(emotion_options['宋词']),
+            '总体': Counter(emotion_options['唐诗'] + emotion_options['宋词'])
+        }
+        
         self.analysis_results['basic_stats'] = stats
         logger.info("基本统计信息分析完成")
 
@@ -185,6 +275,75 @@ class PoetryAnalyzer:
         plt.savefig(self.output_dir / 'length_distribution.png')
         plt.close()
         
+        # 5. 情感分类选项分布图
+        if self.analysis_results['basic_stats'].get('情感分类统计', {}).get('总体'):
+            # 转换为DataFrame并排序，只取前15个最常见的情感
+            total_emotions = pd.DataFrame.from_dict(
+                self.analysis_results['basic_stats']['情感分类统计']['总体'], 
+                orient='index', 
+                columns=['count']
+            ).sort_values('count', ascending=False).head(15)
+            
+            if not total_emotions.empty:
+                plt.figure(figsize=(16, 8))
+                ax = total_emotions.plot(kind='bar', figsize=(16, 8))
+                plt.title('前15种情感分类分布', fontsize=16)
+                plt.xlabel('情感类别', fontsize=14)
+                plt.ylabel('出现次数', fontsize=14)
+                plt.xticks(rotation=45, ha='right', fontsize=12)
+                plt.yticks(fontsize=12)
+                
+                # 为每个柱添加数值标签
+                for i, v in enumerate(total_emotions['count']):
+                    ax.text(i, v + 0.1, str(v), ha='center', fontsize=10)
+                
+                plt.tight_layout()
+                plt.savefig(self.output_dir / 'emotion_distribution.png', dpi=300)
+                plt.close()
+                
+                # 分别绘制唐诗和宋词的情感分布（前15种）
+                tang_emotions = pd.DataFrame.from_dict(
+                    self.analysis_results['basic_stats']['情感分类统计']['唐诗'], 
+                    orient='index', 
+                    columns=['count']
+                ).sort_values('count', ascending=False).head(15)
+                
+                song_emotions = pd.DataFrame.from_dict(
+                    self.analysis_results['basic_stats']['情感分类统计']['宋词'], 
+                    orient='index', 
+                    columns=['count']
+                ).sort_values('count', ascending=False).head(15)
+                
+                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12))
+                
+                if not tang_emotions.empty:
+                    tang_emotions.plot(kind='bar', ax=ax1)
+                    ax1.set_title('唐诗前15种情感分类分布', fontsize=16)
+                    ax1.set_xlabel('情感类别', fontsize=14)
+                    ax1.set_ylabel('出现次数', fontsize=14)
+                    ax1.tick_params(axis='x', rotation=45, labelsize=12)
+                    ax1.tick_params(axis='y', labelsize=12)
+                    
+                    # 为每个柱添加数值标签
+                    for i, v in enumerate(tang_emotions['count']):
+                        ax1.text(i, v + 0.1, str(v), ha='center', fontsize=10)
+                
+                if not song_emotions.empty:
+                    song_emotions.plot(kind='bar', ax=ax2)
+                    ax2.set_title('宋词前15种情感分类分布', fontsize=16)
+                    ax2.set_xlabel('情感类别', fontsize=14)
+                    ax2.set_ylabel('出现次数', fontsize=14)
+                    ax2.tick_params(axis='x', rotation=45, labelsize=12)
+                    ax2.tick_params(axis='y', labelsize=12)
+                    
+                    # 为每个柱添加数值标签
+                    for i, v in enumerate(song_emotions['count']):
+                        ax2.text(i, v + 0.1, str(v), ha='center', fontsize=10)
+                
+                plt.tight_layout()
+                plt.savefig(self.output_dir / 'emotion_distribution_by_type.png', dpi=300)
+                plt.close()
+        
         logger.info("可视化图表生成完成")
 
     def generate_report(self) -> None:
@@ -198,6 +357,56 @@ class PoetryAnalyzer:
         song_chars = pd.DataFrame.from_dict(self.analysis_results['text_features']['宋词']['常用字'], 
                                           orient='index', 
                                           columns=['count']).sort_values('count', ascending=False)
+        
+        # 格式化情感分类数据，并按出现频率降序排序
+        emotion_stats = ""
+        if '情感分类统计' in self.analysis_results['basic_stats']:
+            # 将情感计数转换为DataFrame并排序
+            total_emotions_df = pd.DataFrame.from_dict(
+                self.analysis_results['basic_stats']['情感分类统计']['总体'], 
+                orient='index', 
+                columns=['count']
+            ).sort_values('count', ascending=False)
+            
+            tang_emotions_df = pd.DataFrame.from_dict(
+                self.analysis_results['basic_stats']['情感分类统计']['唐诗'], 
+                orient='index', 
+                columns=['count']
+            ).sort_values('count', ascending=False)
+            
+            song_emotions_df = pd.DataFrame.from_dict(
+                self.analysis_results['basic_stats']['情感分类统计']['宋词'], 
+                orient='index', 
+                columns=['count']
+            ).sort_values('count', ascending=False)
+            
+            emotion_stats = f"""
+### 1.4 情感分类统计
+
+#### 1.4.1 总体前20种情感分布:
+{total_emotions_df.head(20).to_string()}
+
+#### 1.4.2 唐诗前15种情感分布:
+{tang_emotions_df.head(15).to_string()}
+
+#### 1.4.3 宋词前15种情感分布:
+{song_emotions_df.head(15).to_string()}
+"""
+        
+        # 词语和句子统计
+        qa_stats = ""
+        if '词语和句子统计' in self.analysis_results['basic_stats']:
+            qa_stats = f"""
+### 1.5 词语和句子统计
+- 总体平均需要解释的词语数量: {self.analysis_results['basic_stats']['词语和句子统计']['总体']['平均解释词语数']:.2f}
+- 总体平均需要翻译的句子数量: {self.analysis_results['basic_stats']['词语和句子统计']['总体']['平均翻译句子数']:.2f}
+
+- 唐诗平均需要解释的词语数量: {self.analysis_results['basic_stats']['词语和句子统计']['唐诗']['平均解释词语数']:.2f}
+- 唐诗平均需要翻译的句子数量: {self.analysis_results['basic_stats']['词语和句子统计']['唐诗']['平均翻译句子数']:.2f}
+
+- 宋词平均需要解释的词语数量: {self.analysis_results['basic_stats']['词语和句子统计']['宋词']['平均解释词语数']:.2f}
+- 宋词平均需要翻译的句子数量: {self.analysis_results['basic_stats']['词语和句子统计']['宋词']['平均翻译句子数']:.2f}
+"""
         
         report = f"""
 # 古诗词数据分析报告
@@ -215,6 +424,8 @@ class PoetryAnalyzer:
 
 ### 1.3 宋词时期统计
 {pd.Series(self.analysis_results['basic_stats']['宋词时期统计']).to_string()}
+{emotion_stats}
+{qa_stats}
 
 ## 2. 文本特征分析
 
@@ -235,6 +446,8 @@ class PoetryAnalyzer:
 - tang_poetry_categories.png: 唐诗分类统计条形图
 - song_ci_periods.png: 宋词时期统计条形图
 - length_distribution.png: 字数分布直方图
+- emotion_distribution.png: 情感分类选项分布图（前15种情感）
+- emotion_distribution_by_type.png: 唐诗宋词情感分布对比图（前15种情感）
 """
         
         with open(self.output_dir / 'analysis_report.md', 'w', encoding='utf-8') as f:

@@ -1,0 +1,6 @@
+2025-04-23 19:34:22,001 - __main__ - INFO - 找到8个JSON文件
+2025-04-23 19:34:22,001 - __main__ - INFO - 
+开始分析数据集: /Users/dimpurr/WorkflowUser/Code/Academic/CAPA-private/data/杂/train.json
+2025-04-23 19:34:22,001 - __main__ - INFO - 创建输出目录: ./杂_train
+2025-04-23 19:34:22,001 - __main__ - INFO - 成功加载数据集: /Users/dimpurr/WorkflowUser/Code/Academic/CAPA-private/data/杂/train.json, 样本数量: 8
+2025-04-23 19:34:22,001 - __main__ - INFO - 计算 杂_train 的基本统计信息...
