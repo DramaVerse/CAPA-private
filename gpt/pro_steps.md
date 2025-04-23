@@ -2129,3 +2129,298 @@ python -m src.utils.visualize
 ```
 
 ## 6. 提交与验证
+
+最后，我们准备提交结果并验证我们的模型。
+
+### 6.1 准备提交文件
+
+我们需要准备符合比赛要求的提交文件：
+
+```python
+# src/utils/prepare_submission.py
+import os
+import json
+import shutil
+import argparse
+
+def load_predictions(pred_file):
+    """加载预测结果"""
+    with open(pred_file, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def format_submission(predictions, output_file):
+    """格式化提交文件"""
+    # 确保所有预测结果都有正确的格式
+    formatted_predictions = []
+
+    for pred in predictions:
+        formatted_pred = {
+            "ans_qa_words": pred.get("ans_qa_words", {}),
+            "ans_qa_sents": pred.get("ans_qa_sents", {}),
+            "choose_id": pred.get("choose_id", "")
+        }
+
+        # 如果有ID，添加到结果中
+        if "id" in pred:
+            formatted_pred["id"] = pred["id"]
+
+        formatted_predictions.append(formatted_pred)
+
+    # 保存格式化的预测结果
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(formatted_predictions, f, ensure_ascii=False, indent=2)
+
+def prepare_submission_package(pred_file, output_dir, team_info):
+    """准备提交包"""
+    # 创建输出目录
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 加载预测结果
+    predictions = load_predictions(pred_file)
+
+    # 格式化提交文件
+    submission_file = os.path.join(output_dir, "predictions.json")
+    format_submission(predictions, submission_file)
+
+    # 创建团队信息文件
+    team_info_file = os.path.join(output_dir, "team_info.json")
+    with open(team_info_file, "w", encoding="utf-8") as f:
+        json.dump(team_info, f, ensure_ascii=False, indent=2)
+
+    # 复制模型代码
+    code_dir = os.path.join(output_dir, "code")
+    os.makedirs(code_dir, exist_ok=True)
+
+    # 复制src目录
+    shutil.copytree("src", os.path.join(code_dir, "src"), dirs_exist_ok=True)
+
+    # 复制配置文件
+    shutil.copytree("configs", os.path.join(code_dir, "configs"), dirs_exist_ok=True)
+
+    # 复制脚本文件
+    shutil.copytree("scripts", os.path.join(code_dir, "scripts"), dirs_exist_ok=True)
+
+    # 创建 README 文件
+    readme_file = os.path.join(output_dir, "README.md")
+    with open(readme_file, "w", encoding="utf-8") as f:
+        f.write("# 古诗词理解与推理评测\n\n")
+        f.write(f"## 团队名称: {team_info['team_name']}\n\n")
+        f.write("## 模型描述\n\n")
+        f.write("我们使用了多阶段微调策略，包括领域预训练、多任务指令微调和人类偏好对齐。\n\n")
+        f.write("最终我们集成了多个模型的输出，并使用高级后处理技术来提高结果质量。\n\n")
+        f.write("## 运行说明\n\n")
+        f.write("请按照以下步骤运行我们的代码：\n\n")
+        f.write("1. 安装依赖项: `pip install -r requirements.txt`\n")
+        f.write("2. 准备数据: `bash scripts/prepare_data.sh`\n")
+        f.write("3. 训练模型: `bash scripts/train_all.sh`\n")
+        f.write("4. 运行推理: `python -m src.inference.pipeline --test_file <test_file> --output_file <output_file>`\n")
+
+    # 创建 requirements.txt 文件
+    requirements_file = os.path.join(output_dir, "requirements.txt")
+    with open(requirements_file, "w", encoding="utf-8") as f:
+        f.write("transformers>=4.36.0\n")
+        f.write("datasets>=2.14.0\n")
+        f.write("peft>=0.7.0\n")
+        f.write("accelerate>=0.25.0\n")
+        f.write("bitsandbytes>=0.41.0\n")
+        f.write("trl>=0.7.4\n")
+        f.write("sentencepiece>=0.1.99\n")
+        f.write("protobuf>=4.24.4\n")
+        f.write("tensorboard>=2.14.0\n")
+        f.write("wandb>=0.16.0\n")
+        f.write("jsonlines>=3.1.0\n")
+        f.write("nltk>=3.8.1\n")
+        f.write("bert_score>=0.3.13\n")
+        f.write("jieba>=0.42.1\n")
+        f.write("rouge>=1.0.1\n")
+        f.write("sacrebleu>=2.3.1\n")
+
+    print(f"提交包已准备完成，保存在 {output_dir}")
+
+def main():
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="准备提交包")
+    parser.add_argument("--pred_file", type=str, default="results/predictions.json", help="预测结果文件路径")
+    parser.add_argument("--output_dir", type=str, default="submission", help="输出目录")
+    args = parser.parse_args()
+
+    # 团队信息
+    team_info = {
+        "team_name": "PoetryMasters",
+        "team_members": [
+            {
+                "name": "张三",
+                "affiliation": "某大学",
+                "email": "zhangsan@example.com"
+            },
+            {
+                "name": "李四",
+                "affiliation": "某大学",
+                "email": "lisi@example.com"
+            }
+        ],
+        "model_description": "多阶段微调策略与模型集成"
+    }
+
+    # 准备提交包
+    prepare_submission_package(args.pred_file, args.output_dir, team_info)
+
+if __name__ == "__main__":
+    main()
+```
+
+运行提交准备脚本：
+
+```bash
+python -m src.utils.prepare_submission
+```
+
+### 6.2 验证模型
+
+最后，我们需要验证我们的模型是否符合比赛要求：
+
+```python
+# src/utils/validate_model.py
+import os
+import json
+import torch
+import argparse
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def count_parameters(model):
+    """计算模型参数量"""
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+def validate_model_size(model_path, max_params=20e9):
+    """验证模型大小是否符合要求"""
+    print(f"加载模型: {model_path}")
+
+    # 加载模型
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        torch_dtype=torch.float16,
+        device_map="auto",
+        trust_remote_code=True
+    )
+
+    # 计算参数量
+    total_params = count_parameters(model)
+    print(f"模型总参数量: {total_params:,}")
+
+    # 检查是否符合要求
+    if total_params <= max_params:
+        print(f"✅ 模型大小符合要求 (小于等于 {max_params:,} 参数)")
+        return True
+    else:
+        print(f"❌ 模型大小超过要求 (大于 {max_params:,} 参数)")
+        return False
+
+def validate_model_output(model_path, test_prompt):
+    """验证模型输出格式是否符合要求"""
+    print(f"验证模型输出格式...")
+
+    # 加载模型和分词器
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        torch_dtype=torch.float16,
+        device_map="auto",
+        trust_remote_code=True
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_path,
+        trust_remote_code=True
+    )
+
+    # 格式化提示
+    formatted_prompt = f"<|im_start|>system\n你是一个古诗词理解与推理助手。<|im_end|>\n<|im_start|>user\n{test_prompt}<|im_end|>\n<|im_start|>assistant\n"
+
+    # 生成输出
+    inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_length=1024,
+            temperature=0.7,
+            top_p=0.9,
+            do_sample=True
+        )
+
+    # 解码输出
+    output_text = tokenizer.decode(outputs[0], skip_special_tokens=False)
+
+    # 提取助手部分
+    assistant_start = output_text.rfind("<|im_start|>assistant\n") + len("<|im_start|>assistant\n")
+    assistant_end = output_text.rfind("<|im_end|>") if "<|im_end|>" in output_text else len(output_text)
+    assistant_response = output_text[assistant_start:assistant_end].strip()
+
+    print(f"模型输出:\n{assistant_response}\n")
+
+    # 尝试解析JSON
+    try:
+        parsed_output = json.loads(assistant_response)
+
+        # 检查必要字段
+        required_fields = ["ans_qa_words", "ans_qa_sents", "choose_id"]
+        missing_fields = [field for field in required_fields if field not in parsed_output]
+
+        if missing_fields:
+            print(f"❌ 输出缺少必要字段: {', '.join(missing_fields)}")
+            return False
+        else:
+            print("✅ 模型输出格式符合要求")
+            return True
+
+    except json.JSONDecodeError:
+        print("❌ 模型输出不是有效的JSON")
+        return False
+
+def main():
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="验证模型")
+    parser.add_argument("--model_path", type=str, default="models/preference_align", help="模型路径")
+    parser.add_argument("--max_params", type=float, default=20e9, help="最大允许参数量")
+    args = parser.parse_args()
+
+    # 测试提示
+    test_prompt = """请解释以下古诗词中的词语：春风、江南
+请翻译以下句子：春风又绿江南岸
+请选择这首诗表达的主要情感：{"A": "思乡", "B": "写景"}"""
+
+    # 验证模型大小
+    size_valid = validate_model_size(args.model_path, args.max_params)
+
+    # 验证模型输出
+    output_valid = validate_model_output(args.model_path, test_prompt)
+
+    # 总结
+    if size_valid and output_valid:
+        print("\n✅ 模型验证通过！可以提交。")
+    else:
+        print("\n❌ 模型验证失败！请检查上述问题。")
+
+if __name__ == "__main__":
+    main()
+```
+
+运行模型验证脚本：
+
+```bash
+python -m src.utils.validate_model
+```
+
+## 总结
+
+在这个高级实施指南中，我们实现了一个更具竞争力的古诗词理解与推理模型。与基础方案相比，我们的高级方案具有以下优势：
+
+1. **多阶段微调策略**：采用领域预训练、多任务指令微调和人类偏好对齐的三阶段微调，而不是简单的单阶段QLoRA微调
+
+2. **模型集成**：使用多模型集成策略，结合Qwen2.5-7B和ChatGLM4-9B的优势，而不是依赖单一模型
+
+3. **高级数据处理**：实现了更复杂的数据增强和处理流水线，包括专家知识注入和对比学习样本构建
+
+4. **定制训练框架**：开发了专门的多任务训练器和DPO训练流程，优化了针对古诗词理解与推理任务的训练过程
+
+5. **强大的后处理**：实现了高级后处理机制，确保输出质量和格式正确性，包括备用生成和质量检查
+
+这种综合方法能够更好地应对古诗词理解与推理的复杂性，提高模型在词语解释、句子翻译和情感分类三个子任务上的表现，从而在CCL 2025评测中获得更具竞争力的结果。
