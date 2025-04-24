@@ -135,192 +135,63 @@ cd try-baseline
 
 ## 3. 下载和准备模型
 
-在这一步，我们将下载并准备Qwen2.5-7B模型。Qwen2.5-7B是通义千问最新发布的开源大语言模型，具有强大的中文理解能力，特别适合古诗词理解任务。
+在这一步，我们将准备使用Qwen模型。由于在中国境内的PAI-DSW环境中，直接访问Hugging Face可能会受到网络限制，我们将使用阿里云自己的ModelScope平台上的Qwen模型。
 
-### 3.1 创建运行脚本
+### 3.1 创建适用于中国环境的运行脚本
 
-首先，我们需要创建一个Python脚本来运行模型。在try-baseline目录中，创建一个名为`run_model.py`的文件：
+我们已经为您准备了一个适合在中国环境运行的脚本`run_model_cn.py`，它使用ModelScope上的Qwen-7B-Chat模型：
 
 ```bash
 # 确保您在try-baseline目录中
-cd /mnt/workspace/try-baseline
+cd /mnt/workspace/CAPA-private/try-baseline
 
-# 使用文本编辑器创建脚本
-nano run_model.py
-```
-
-将以下代码复制到编辑器中（按Ctrl+Shift+V粘贴），然后按Ctrl+O保存，再按Ctrl+X退出：
-
-```python
-import json
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from tqdm import tqdm
-import re
-import argparse
-
-def load_json(file_path):
-    """加载JSON数据"""
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
-def save_json(data, file_path):
-    """保存JSON数据"""
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-def process_poetry_data(data, model, tokenizer, max_samples=5):
-    """处理诗词数据并使用Qwen模型生成回答"""
-    results = []
-
-    # 只处理指定数量的样本（用于测试）
-    data = data[:max_samples]
-
-    for item in tqdm(data, desc="处理诗词"):
-        # 构建提示
-        prompt = f"""
-        你是一个古诗词专家，现在有一些古诗词需要你的帮助。
-        我会给你提供一个 JSON 数据，格式如下：
-        - **"title"**：古诗词的标题
-        - **"content"**：古诗词的内容
-        - **"keywords"**：古诗词中需要解释的词语及其含义
-        - **"trans"**：古诗词的白话文翻译
-        - **"emotion"**：古诗词表达的情感
-
-        这是我的数据：
-        ```json
-        {json.dumps(item, ensure_ascii=False)}
-        ```
-
-        请你根据提供的数据，生成如下 JSON 格式的结果：
-        - **"ans_qa_words"**：对诗中的词语进行解释
-        - **"ans_qa_sents"**：对诗中的句子提供白话文翻译
-        - **"choose_id"**：选择最符合该诗词情感的选项ID
-
-        请确保输出是有效的JSON格式，不要包含任何额外的解释或注释。
-        """
-
-        # 构建消息
-        messages = [
-            {"role": "system", "content": "你是一个擅长古诗词的专家。"},
-            {"role": "user", "content": prompt}
-        ]
-
-        # 应用聊天模板
-        text = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
-
-        # 生成回答
-        model_inputs = tokenizer([text], return_tensors="pt").to(model.device)
-
-        with torch.no_grad():
-            generated_ids = model.generate(
-                **model_inputs,
-                max_new_tokens=1024,
-                temperature=0.7,
-                top_p=0.9,
-                do_sample=True
-            )
-
-        # 提取新生成的token
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
-        ]
-
-        response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-
-        # 尝试提取JSON
-        try:
-            # 使用正则表达式提取JSON部分
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                result = json.loads(json_str)
-                results.append(result)
-                print(f"成功处理: {item.get('title', '无标题')}")
-            else:
-                print(f"无法提取JSON: {item.get('title', '无标题')}")
-                print(f"原始响应: {response}")
-        except json.JSONDecodeError:
-            print(f"JSON解析错误: {item.get('title', '无标题')}")
-            print(f"原始响应: {response}")
-
-    return results
-
-def main():
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description="运行Qwen2.5-7B模型进行古诗词理解")
-    parser.add_argument("--input", type=str, default="test_data.json", help="输入数据文件路径")
-    parser.add_argument("--output", type=str, default="baseline_output.json", help="输出结果文件路径")
-    parser.add_argument("--samples", type=int, default=5, help="处理的样本数量")
-    args = parser.parse_args()
-
-    # 模型路径
-    model_name = "Qwen/Qwen2.5-7B-Instruct"
-
-    # 加载模型和分词器
-    print("正在加载模型和分词器...")
-    print("这可能需要几分钟时间，模型大小约为14GB...")
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        device_map="auto",
-        trust_remote_code=True,
-        torch_dtype=torch.bfloat16  # 使用bfloat16以节省显存
-    )
-    print("模型加载成功!")
-
-    # 加载测试数据
-    data = load_json(args.input)
-    print(f"成功加载数据，共{len(data)}条")
-
-    # 处理数据
-    result_data = process_poetry_data(data, model, tokenizer, max_samples=args.samples)
-
-    # 保存结果
-    save_json(result_data, args.output)
-    print(f"处理完成。结果已保存到 {args.output}")
-
-if __name__ == "__main__":
-    main()
+# 查看脚本内容
+cat run_model_cn.py
 ```
 
 这个脚本的主要功能是：
-1. 加载Qwen2.5-7B-Instruct模型
+1. 加载ModelScope上的Qwen-7B-Chat模型（国内可访问）
 2. 读取测试数据
 3. 为每个诗词样本生成解释、翻译和情感分类
 4. 将结果保存为JSON文件
 
-### 3.2 了解模型下载过程
+### 3.2 安装必要的依赖
 
-当您第一次运行脚本时，系统会自动从Hugging Face下载Qwen2.5-7B-Instruct模型。这个过程是自动的，但需要注意以下几点：
-
-1. **模型大小**：Qwen2.5-7B模型约14GB，下载可能需要一些时间
-2. **存储位置**：模型会被下载到`~/.cache/huggingface/hub`目录
-3. **网络要求**：需要稳定的网络连接
-4. **显存要求**：A10 GPU有24GB显存，足够运行7B参数的模型
-
-如果您的网络连接不稳定或想要手动下载模型，可以使用以下命令：
+在运行脚本之前，我们需要确保安装了所有必要的依赖：
 
 ```bash
-# 安装git-lfs（大文件存储）
-apt-get install git-lfs
-
-# 克隆模型仓库
-git lfs install
-git clone https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
-
-# 然后修改脚本中的模型路径
-# model_name = "./Qwen2.5-7B-Instruct"
+# 安装必要的Python包
+pip install modelscope transformers==4.36.2 accelerate==0.25.0 torch==2.1.2 tqdm==4.66.1 sentencepiece==0.1.99 protobuf==4.24.4
 ```
 
-### 3.3 理解模型格式
+这些库的作用如下：
+- modelscope: 阿里云的模型平台，用于访问国内模型
+- transformers: Hugging Face的模型库，用于加载和使用模型
+- accelerate: 加速模型训练和推理
+- torch: PyTorch深度学习框架
+- tqdm: 显示进度条
+- sentencepiece和protobuf: 模型分词器所需的库
 
-Qwen2.5-7B模型使用的是Hugging Face的标准格式，包含以下主要文件：
+### 3.3 了解模型下载过程
+
+当您第一次运行脚本时，系统会自动从ModelScope下载Qwen-7B-Chat模型。这个过程是自动的，但需要注意以下几点：
+
+1. **模型大小**：Qwen-7B模型约14GB，下载可能需要一些时间
+2. **存储位置**：模型会被下载到`~/.cache/modelscope/hub`目录
+3. **网络要求**：需要稳定的网络连接，但不需要访问国外网站
+4. **显存要求**：A10 GPU有24GB显存，足够运行7B参数的模型
+
+如果您想要手动下载模型，可以使用以下命令：
+
+```bash
+# 使用modelscope命令行工具下载模型
+pip install modelscope
+python -c "from modelscope import snapshot_download; snapshot_download('qwen/Qwen-7B-Chat')"
+```
+
+### 3.4 理解模型格式
+
+Qwen-7B-Chat模型使用的是标准格式，包含以下主要文件：
 
 - `config.json`：模型配置文件
 - `tokenizer.json`：分词器配置
@@ -333,25 +204,30 @@ Qwen2.5-7B模型使用的是Hugging Face的标准格式，包含以下主要文�
 
 现在我们已经准备好了所有必要的文件，可以开始运行baseline脚本了。
 
-### 4.1 运行模型
+### 4.1 运行模型（适用于中国环境）
+
+我们发现在PAI-DSW环境中，直接使用`run_model_cn.py`可能仍然会尝试访问Hugging Face，因此我们创建了一个专门使用阿里云ModelScope API的脚本`run_model_aliyun.py`。
 
 确保您在try-baseline目录中，然后运行以下命令：
 
 ```bash
 # 确保您在try-baseline目录中
-cd /mnt/workspace/try-baseline
+cd /mnt/workspace/CAPA-private/try-baseline
 
-# 运行脚本，处理前5个样本
-python run_model.py --samples 5
+# 安装ModelScope（如果尚未安装）
+pip install modelscope
+
+# 运行阿里云专用脚本，处理前5个样本
+python run_model_aliyun.py --samples 5
 ```
 
 这个命令会：
-1. 自动下载Qwen2.5-7B-Instruct模型（首次运行时）
-2. 加载模型到GPU内存
+1. 使用ModelScope的pipeline API加载Qwen-7B-Chat模型
+2. 如果加载失败，会自动尝试加载更小的Qwen-1.8B-Chat模型
 3. 处理test_data.json中的前5个样本
 4. 将结果保存到baseline_output.json文件
 
-> **注意**：首次运行时，模型下载可能需要10-20分钟，取决于网络速度。后续运行将直接使用已下载的模型，速度会快很多。
+> **注意**：首次运行时，模型下载可能需要5-10分钟。如果遇到网络问题，脚本会自动尝试使用更小的模型。
 
 ### 4.2 监控GPU使用情况
 
@@ -365,7 +241,7 @@ python run_model.py --samples 5
 watch -n 1 nvidia-smi
 ```
 
-您应该能看到GPU内存使用量增加到约14-16GB（Qwen2.5-7B模型加载后）。
+您应该能看到GPU内存使用量增加到约14-16GB（Qwen-7B模型加载后）。
 
 ### 4.3 处理更多样本
 
@@ -373,10 +249,10 @@ watch -n 1 nvidia-smi
 
 ```bash
 # 处理前20个样本
-python run_model.py --samples 20 --output baseline_output_20.json
+python run_model_aliyun.py --samples 20 --output baseline_output_20.json
 
 # 处理所有样本（可能需要较长时间）
-python run_model.py --samples 1000 --output baseline_output_all.json
+python run_model_aliyun.py --samples 1000 --output baseline_output_all.json
 ```
 
 ### 4.4 理解运行过程
@@ -385,7 +261,7 @@ python run_model.py --samples 1000 --output baseline_output_all.json
 
 ```
 正在加载模型和分词器...
-这可能需要几分钟时间，模型大小约为14GB...
+这可能需要几分钟时间...
 模型加载成功!
 成功加载数据，共50条
 处理诗词: 100%|██████████| 5/5 [01:30<00:00, 18.12s/it]
@@ -398,6 +274,30 @@ python run_model.py --samples 1000 --output baseline_output_all.json
 ```
 
 每个样本的处理时间约为15-20秒，这是正常的。如果您处理大量样本，可能需要几个小时。
+
+### 4.5 如果仍然遇到网络问题
+
+如果您在使用`run_model_aliyun.py`时仍然遇到网络问题，可以尝试以下解决方案：
+
+1. 检查是否安装了ModelScope：
+```bash
+pip install modelscope -U
+```
+
+2. 尝试使用更小的模型：
+```bash
+# 修改run_model_aliyun.py中的模型名称
+# 将model='qwen/Qwen-7B-Chat'改为
+# model='qwen/Qwen-1.8B-Chat'
+```
+
+3. 如果仍然无法下载模型，可以尝试使用本地模型：
+```bash
+# 查看PAI-DSW环境中是否有预装模型
+ls /root/share/models/
+```
+
+如果找到了预装的模型，可以修改脚本使用本地模型路径。
 
 ## 5. 查看和分析结果
 
@@ -590,39 +490,44 @@ generated_ids = model.generate(
 
 3. 关闭其他占用GPU内存的程序或重启实例。
 
-### 6.2 模型下载问题
+### 6.2 模型下载问题（中国环境）
 
-**问题**：模型下载速度慢或下载失败。
+**问题**：ModelScope模型下载失败。
 
 **解决方案**：
 
 1. 检查网络连接：
 
 ```bash
-ping huggingface.co
+ping modelscope.cn
 ```
 
-2. 清除Hugging Face缓存后重试：
+2. 清除ModelScope缓存后重试：
 
 ```bash
-rm -rf ~/.cache/huggingface/
+rm -rf ~/.cache/modelscope/
 ```
 
-3. 手动下载模型：
+3. 尝试使用阿里云内部镜像：
 
 ```bash
-# 安装git-lfs
-apt-get update
-apt-get install -y git-lfs
+# 修改run_model_cn.py中的模型路径
+# 将model_name = "qwen/Qwen-7B-Chat"改为
+# model_name = "pai-models/qwen-7b-chat"
+```
 
-# 克隆模型仓库
-git lfs install
-cd /mnt/workspace/try-baseline
-git clone https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
+4. 如果您在PAI-DSW环境中，可以尝试使用预装的模型：
 
-# 修改脚本中的模型路径
-# 将model_name = "Qwen/Qwen2.5-7B-Instruct"改为
-# model_name = "/mnt/workspace/try-baseline/Qwen2.5-7B-Instruct"
+```bash
+# 查看PAI-DSW环境中是否有预装模型
+ls /root/share/models/
+```
+
+如果找到了预装的Qwen模型，可以直接使用：
+
+```python
+# 修改模型路径为预装模型路径
+model_name = "/root/share/models/Qwen-7B-Chat"
 ```
 
 ### 6.3 JSON解析错误
@@ -643,11 +548,11 @@ prompt += """
 """
 ```
 
-2. 实现更健壮的JSON提取和修复：
+2. 使用我们已经准备好的JSON修复函数：
 
 ```python
-# 创建一个新文件fix_json.py
-nano fix_json.py
+# 我们已经为您准备了fix_json.py文件
+cat fix_json.py
 ```
 
 ```python
@@ -682,7 +587,7 @@ def fix_json_string(json_str):
 3. 在主脚本中使用这个修复函数：
 
 ```python
-# 在run_model.py中导入修复函数
+# 在run_model_cn.py中导入修复函数
 from fix_json import fix_json_string
 
 # 修改JSON解析部分
@@ -717,24 +622,26 @@ except Exception as e:
 1. 减少处理的样本数量，先测试一小部分：
 
 ```bash
-python run_model.py --samples 10
+python run_model_cn.py --samples 10
 ```
 
 2. 使用更小的模型（如果可接受较低的性能）：
 
 ```python
-# 使用更小的模型，如Qwen1.5-1.8B
-model_name = "Qwen/Qwen1.5-1.8B-Chat"
+# 使用更小的模型，如Qwen-1.8B
+model_name = "qwen/Qwen-1.8B-Chat"
 ```
 
 3. 将数据分批处理，每批处理一部分样本：
 
 ```bash
 # 处理第1-10个样本
-python run_model.py --samples 10 --output batch1.json
+python run_model_cn.py --samples 10 --output batch1.json
 
 # 处理第11-20个样本
-# 修改脚本，添加start_index参数，或者手动修改数据文件
+# 可以创建一个新的测试数据文件，只包含第11-20个样本
+head -n 20 test_data.json | tail -n 10 > test_data_11_20.json
+python run_model_cn.py --input test_data_11_20.json --output batch2.json
 ```
 
 ## 7. 后续步骤
@@ -759,13 +666,44 @@ python run_model.py --samples 10 --output batch1.json
 2. 处理完整的测试集
 3. 准备提交文件和说明文档
 
+### 7.4 PAI-DSW环境特有问题
+
+**问题**：在PAI-DSW环境中遇到特殊问题。
+
+**解决方案**：
+
+1. 如果遇到权限问题：
+
+```bash
+# 确保您有权限访问工作目录
+chmod -R 755 /mnt/workspace/CAPA-private/try-baseline
+```
+
+2. 如果需要安装其他软件包：
+
+```bash
+# 使用apt安装系统软件包
+apt update
+apt install -y <软件包名称>
+
+# 使用pip安装Python包
+pip install <Python包名称>
+```
+
+3. 如果需要保存工作环境：
+
+```bash
+# 在PAI-DSW控制台中，点击"保存镜像"按钮
+# 这将保存您的所有安装和配置
+```
+
 ## 总结
 
-恭喜！您已经成功在阿里云PAI-DSW上运行了Qwen2.5-7B模型的baseline，用于古诗词理解与推理评测任务。通过本指南，您学会了：
+恭喜！您已经成功在阿里云PAI-DSW上运行了Qwen模型的baseline，用于古诗词理解与推理评测任务。通过本指南，您学会了：
 
 1. 登录和使用PAI-DSW平台
 2. 准备代码和环境
-3. 下载和使用大型语言模型
+3. 在中国环境下下载和使用大型语言模型
 4. 运行推理脚本处理数据
 5. 分析结果并解决常见问题
 
